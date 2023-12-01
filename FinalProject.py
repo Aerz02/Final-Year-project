@@ -1,7 +1,6 @@
 # Aerhan Srirangan's Final Project
 
 # Imports
-
 from pathlib import Path
 import datetime as dt
 
@@ -9,7 +8,6 @@ import tensorflow as tf
 import cv2
 import matplotlib.pyplot as plt
 import numpy as np
-import pandas as pd
 from keras.layers import *
 from keras.models import Sequential
 from keras.utils import plot_model
@@ -22,10 +20,12 @@ print("Tensorflow Version:", tf.__version__)
 
 # Specify current directory
 print("Current directory: ", Path.cwd())
+
 # Specify the directory containing the dataset
 DATASET_DIR = "UCF-Crime Dataset"
+
 # Specify path to dataset directory
-dataset_path = Path.cwd() / DATASET_DIR
+dataset_path = Path.cwd().parent.parent / "Documents/Uni/Year 3/Final Year Project/Model" / DATASET_DIR
 # Get each category of the dataset
 CLASSES = [d.name for d in dataset_path.iterdir() if d.is_dir()]
 print(CLASSES)
@@ -45,6 +45,9 @@ class Video:
         self.frame_count = frame_count
         self.duration = duration
 
+    def __str__(self):
+        return f"{self.filepath} has {self.frame_count} frames and is {self.duration}"
+
 
 # helper function to display the length of the video
 def get_video_duration(frame_count: float, fps: float) -> str:
@@ -63,6 +66,7 @@ def get_video_duration(frame_count: float, fps: float) -> str:
 
     # Return the duration as a formatted string
     return f"{int(hours):02d}:{int(minutes):02d}:{int(seconds):02d}"
+
 
 # As the dataset is 37 GB, I will only use a tiny portion of it(10 videos per label).
 # Otherwise, it will be too extensive to compute.
@@ -88,7 +92,7 @@ def extract_frames(video) -> list:  # Try to find the correct type for video
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
         # Resize the Frame to fixed height and width.
-        resized_frame = cv2.resize(frame, (IMAGE_HEIGHT, IMAGE_WIDTH))
+        resized_frame = cv2.resize(rgb_frame, (IMAGE_HEIGHT, IMAGE_WIDTH))
         # Normalize the resized frame by dividing it with 255 so each pixel value then lies between 0 and 1
         normalised_frame = resized_frame / 255
         frames.append(normalised_frame)
@@ -110,9 +114,10 @@ def split_video(video, interval) -> list:
     split_videos = []
     start = 0
     count = 1
-    while start < len(video):
-        end = min(start + interval, len(video))
-        print(f"start = {start}, end = {end} loop iteration {count}")
+    end = start + interval
+    while end <= len(video):
+        end = start + interval
+        # print(f"start = {start}, end = {end} loop iteration {count}")
         part = np.array(video[start:end])
         split_videos.append(part)
         start = end + 1
@@ -120,52 +125,70 @@ def split_video(video, interval) -> list:
     return split_videos
 
 
-FILE_LIMIT = 20
-
-
 # function to fetch dataset stored on hard drive as it's 37GB
 # and checks if the videos in the dataset are usable or not
-def fetch_dataset() -> list:
+def fetch_ucf_crime_dataset() -> list:
     videos = []
+    # FILE_LIMIT = 10
     for label in CLASSES:
-        # Display the name of the class whose data is being extracted.
         print(f'Extracting Data of: {label}')
         label_path = dataset_path / label
         print("Label path:", label_path)
-        files = [f for f in label_path.iterdir() if f.suffix == '.mp4']
-        # Select the first 10 videos of each label
+        files = [f.name for f in label_path.iterdir() if f.suffix == '.mp4']
+        # smallest_video = None
+        # smallest_frame_count = float('inf')
         file_count = 0
         for file in files:
             filepath = label_path / file
-            # Check if the video file can be opened
             video = cv2.VideoCapture(str(filepath))
-            if file_count == FILE_LIMIT:
-                break
             if not video.isOpened():
                 print(f"Could not open video file: {str(filepath)}")
-                files.remove(file)
                 continue
+            # if file_count == FILE_LIMIT:
+            #     break
             else:
                 fps = video.get(cv2.CAP_PROP_FPS)
                 frame_count = video.get(cv2.CAP_PROP_FRAME_COUNT)
                 duration = get_video_duration(frame_count, fps)
-                print(file, "is ", duration)
                 # Extract the frames of the video
                 frames = extract_frames(video)
-                # the smallest video in the dataset is 139 frames long
-                if int(frame_count) % 139 == 0:
-                    # Add video to video array
-                    video = Video(file, frames, filepath, label, int(frame_count), duration)
-                    videos.append(video)
-                    file_count += 1
+                # the smallest video in the dataset is 104 frames long
+                # print(f"{int(frame_count)} % 104 = {int(frame_count) % 104}")
+                if int(frame_count) % 104 == 0:
+                    if int(frame_count) == 104:
+                        # Add video to video array
+                        video = Video(str(file), frames, str(filepath), label, int(frame_count), duration)
+                        # print(str(video))
+                        videos.append(video)
+                    elif int(frame_count) > 104:
+                        # print(f"{str(file)} has frame_count = {frame_count}" +
+                        #       f", length of frames = {len(frames)}, fps = {fps}")
+                        print(f"{str(file)} has {int(frame_count)} frames, "
+                              f"{int(frame_count)} / 104 = {int(frame_count) / 104}")
+                        video_segments = split_video(frames, 104)
+                        for i in range(len(video_segments)):
+                            filename = str(file) + " Part " + str(i + 1)
+                            video = Video(str(filename), video_segments[i], str(filepath), label
+                                          , len(video_segments[i]), get_video_duration(len(video_segments[i]), fps))
+                            videos.append(video)
+                file_count += 1
+        #         # Check if the current video has the smallest frame count seen so far
+        #         if frame_count < smallest_frame_count:
+        #             smallest_frame_count = frame_count
+        #             smallest_video = Video(str(file), frames, str(filepath), label, int(frame_count), duration)
+        #             print(smallest_video)
+        # # If a smallest video is found for this label, add it to the videos list
+        # if smallest_video is not None:
+        #     videos.append(smallest_video)
     return videos
 
 
 # Video data processing
 
-videos = fetch_dataset()
-
-frame_counts = [video.frame_count for video in videos]
+videos = fetch_ucf_crime_dataset()
+for v in videos:
+    print(str(v))
+frame_counts = [v.frame_count for v in videos]
 
 print("Number of videos", len(videos))
 
@@ -185,12 +208,7 @@ print("Data type of features", features.dtype)
 print(f"features has length of {len(features)}")
 print(f"Video Labels has length of {len(video_labels)}")
 
-# elif int(frame_count) > 139:
-#     video_segments = split_video(frames, 139)
-#     for i in range(len(video_segments)):
-#     video = Video(str(str(file) + "Part "+ str(i + 1)), video_segments[i],filepath, label,
-#                   len(video_segments[i]), get_video_duration(len(video_segments[i]), fps))
-#                             videos.append(video)
+
 # durations = [video.duration for video in videos]
 # print(durations)
 
@@ -228,7 +246,8 @@ encoder = OneHotEncoder()
 encoded_labels_train = encoder.fit_transform(labels_train).toarray()
 encoded_labels_test = encoder.fit_transform(labels_test).toarray()
 
-#I'll be using One Hot Encoding as it is more flexible and since there is no natural order or hierarchy
+
+# I'll be using One Hot Encoding as it is more flexible and since there is no natural order or hierarchy
 
 # Create ConvLSTM model
 
@@ -347,7 +366,8 @@ def plot_metric(model_training_history, metric_name_1, metric_name_2, plot_name)
 
 
 # Visualize the training and validation loss metrics.
-plot_metric(conv_lstm_model_training_history, 'loss', 'val_loss', 'Total Loss vs Total Validation Loss')
+plot_metric(conv_lstm_model_training_history, 'loss', 'val_loss',
+            'Total Loss vs Total Validation Loss')
 
 # Visualize the training and validation accuracy metrics.
 plot_metric(conv_lstm_model_training_history, 'accuracy', 'val_accuracy',

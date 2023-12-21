@@ -1,6 +1,7 @@
 # Aerhan Srirangan's Final Project
 
 # Imports
+
 from pathlib import Path
 import datetime as dt
 
@@ -8,6 +9,7 @@ import tensorflow as tf
 import cv2
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 from keras.layers import *
 from keras.models import Sequential
 from keras.utils import plot_model
@@ -20,35 +22,20 @@ print("Tensorflow Version:", tf.__version__)
 
 # Specify current directory
 print("Current directory: ", Path.cwd())
-
 # Specify the directory containing the dataset
 DATASET_DIR = "UCF-Crime Dataset"
-
 # Specify path to dataset directory
 dataset_path = Path.cwd().parent.parent / "Documents/Uni/Year 3/Final Year Project/Model" / DATASET_DIR
 # Get each category of the dataset
-CLASSES = [d.name for d in dataset_path.iterdir() if d.is_dir()]
-print(CLASSES)
+labels = [d.name for d in dataset_path.iterdir() if d.is_dir()]
+print(labels)
 # Specify the height and width to which each video frame will be resized in our dataset.
 IMAGE_HEIGHT, IMAGE_WIDTH = 64, 64
 
 
-# Fetch Dataset
+# Dataset Analysis
 
-# Video class
-class Video:
-    def __init__(self, name: str, frames, filepath: str, label: str, frame_count: int, duration: str):
-        self.name = name
-        self.frames = frames
-        self.filepath = filepath
-        self.label = label
-        self.frame_count = frame_count
-        self.duration = duration
-
-    def __str__(self):
-        return f"{self.filepath} has {self.frame_count} frames and is {self.duration}"
-
-
+# Video Length function
 # helper function to display the length of the video
 def get_video_duration(frame_count: float, fps: float) -> str:
     """"
@@ -68,9 +55,129 @@ def get_video_duration(frame_count: float, fps: float) -> str:
     return f"{int(hours):02d}:{int(minutes):02d}:{int(seconds):02d}"
 
 
+# Get Factors function
+def get_factors(n):
+    factors = []
+    for i in range(2, n + 1):
+        if n % i == 0:
+            factors.append(i)
+    return factors
+
+
+# Given the minutes and fps, find the amount of frame
+def minutes_to_frames(minutes: int, fps: int) -> int:
+    seconds = minutes * 60
+    return seconds * fps
+
+
+def get_dataset_info():
+    """
+    Function to iterate through videos, calculate factors of frame count,
+    and create a Pandas DataFrame with filepath, label, frame count, frames and factors of frame count.
+
+    Arguments:
+    dataset_path: str - Path to the dataset directory.
+
+    Returns:
+    pandas.DataFrame - DataFrame containing filepath, label, frame count, and factors of frame count.
+    """
+    videos = []
+    for label in labels:
+        label_path = dataset_path / label
+        files = [f.name for f in label_path.iterdir() if f.suffix == '.mp4']
+        for file in files:
+            filepath = label_path / file
+            video = cv2.VideoCapture(str(filepath))
+            if not video.isOpened():
+                video.release()
+                print(f"Could not open video file: {str(filepath)}")
+                continue
+            fps = int(video.get(cv2.CAP_PROP_FPS))
+            frame_count = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
+            # Calculate factors of the frame count
+            factors = get_factors(frame_count)
+            video_info = {
+                'File': str(file),
+                'Label': label,
+                'Frame Count': frame_count,
+                'FPS': fps,
+                "Duration": get_video_duration(frame_count, fps),
+                'Factors of Frame Count': factors
+            }
+            print(str(file))
+            videos.append(video_info)
+    # Create a DataFrame from the collected information
+    df = pd.DataFrame(videos)
+    # Converts the dataframe into str object with formatting
+    print(df)
+    return df
+
+
+videos_info = get_dataset_info()
+
+
+def factor_count_per_label(df, label):
+    """
+    Function to count the number of videos per factor for a specific label.
+
+    Arguments:
+    df: pandas.DataFrame - DataFrame containing filepath, label, frame count, and factors.
+    label: str - The label for which factor count is calculated.
+
+    Returns:
+    pd.DataFrame - DataFrame showing factor counts for the specified label, ordered from most shared to least shared.
+    """
+    label_df = df[df['Label'] == label]
+    factor_counts = {}
+
+    for factors_list in label_df['Factors of Frame Count']:
+        for factor in factors_list:
+            factor_counts[factor] = factor_counts.get(factor, 0) + 1
+
+    factor_counts_df = (pd.DataFrame(factor_counts.items(),
+                                     columns=['Factor of Frame Count', 'Number of Videos That Share The Factor'])
+                        .sort_values(by='Number of Videos That Share The Factor', ascending=False))
+
+    return factor_counts_df
+
+
+# Iterate over each label to create a DataFrame for each label showing factor counts
+label_factor_counts = {}
+for label in labels:
+    print(label)
+    label_factor_counts[label] = factor_count_per_label(videos_info, label)
+    print(label_factor_counts[label])
+
+frame_counts = videos_info["Frame Count"]
+
+print("Number of videos", len(videos_info))
+
+min_frames = min(frame_counts)
+max_frames = max(frame_counts)
+print("max number of frames in all the videos", max_frames)
+print("Duration of max_frames is " + get_video_duration(max_frames, 30))
+print("min number of frames in all the videos", min_frames)
+print("Duration of min_frames is " + get_video_duration(min_frames, 30))
+
+
+# Fetch Dataset
+
+# Video class
+class Video:
+    def __init__(self, name: str, frames, filepath: str, label: str, frame_count: int, duration: str):
+        self.name = name
+        self.frames = frames
+        self.filepath = filepath
+        self.label = label
+        self.frame_count = frame_count
+        self.duration = duration
+
+    def __str__(self):
+        return f"{self.name} has {self.frame_count} frames and is {self.duration}"
+
+
 # As the dataset is 37 GB, I will only use a tiny portion of it(10 videos per label).
 # Otherwise, it will be too extensive to compute.
-
 
 # extracting frames from video
 def extract_frames(video) -> list:  # Try to find the correct type for video
@@ -90,13 +197,11 @@ def extract_frames(video) -> list:  # Try to find the correct type for video
             break
         # Convert the frame from BGR into RGB format.
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-
         # Resize the Frame to fixed height and width.
         resized_frame = cv2.resize(rgb_frame, (IMAGE_HEIGHT, IMAGE_WIDTH))
         # Normalize the resized frame by dividing it with 255 so each pixel value then lies between 0 and 1
         normalised_frame = resized_frame / 255
         frames.append(normalised_frame)
-
     video.release()
     return frames
 
@@ -112,145 +217,115 @@ def split_video(video, interval) -> list:
         A list of the split videos.
     """
     split_videos = []
-    start = 0
-    count = 1
-    end = start + interval
-    while end <= len(video):
-        end = start + interval
-        # print(f"start = {start}, end = {end} loop iteration {count}")
-        part = np.array(video[start:end])
-        split_videos.append(part)
-        start = end + 1
-        count += 1
+    length = len(video)
+    for i in range(0, length, interval):
+        # print(f"i = {i}, interval = {interval}, i + interval = {i + interval}, video length = {len(video)}")
+        segment = video[i:i + interval]
+        if len(segment) == interval:
+            split_videos.append(segment)
+        else:
+            print(f"Incorrect size: Segment length = {len(segment)}, start = {i}, end = {i + interval}"
+                  f", video length = {len(video)}")
     return split_videos
 
 
 # function to fetch dataset stored on hard drive as it's 37GB
 # and checks if the videos in the dataset are usable or not
-def fetch_ucf_crime_dataset() -> list:
+def fetch_ucf_crime_dataset():
+    FRAMES_LIMIT = minutes_to_frames(3, 30)
+    FILE_LIMIT = 10
     videos = []
-    # FILE_LIMIT = 10
-    for label in CLASSES:
-        print(f'Extracting Data of: {label}')
+    for label in labels:
         label_path = dataset_path / label
-        print("Label path:", label_path)
         files = [f.name for f in label_path.iterdir() if f.suffix == '.mp4']
-        # smallest_video = None
-        # smallest_frame_count = float('inf')
         file_count = 0
         for file in files:
+            if file_count == FILE_LIMIT:  # Break outer loop if the file count limit is reached
+                break
             filepath = label_path / file
-            video = cv2.VideoCapture(str(filepath))
-            if not video.isOpened():
-                print(f"Could not open video file: {str(filepath)}")
+            video_cap = cv2.VideoCapture(str(filepath))
+            if not video_cap.isOpened():
+                video_cap.release()
+                print(f"Could not open video file: {str(file)}")
                 continue
-            # if file_count == FILE_LIMIT:
-            #     break
-            else:
-                fps = video.get(cv2.CAP_PROP_FPS)
-                frame_count = video.get(cv2.CAP_PROP_FRAME_COUNT)
-                duration = get_video_duration(frame_count, fps)
-                # Extract the frames of the video
-                frames = extract_frames(video)
-                # the smallest video in the dataset is 104 frames long
-                # print(f"{int(frame_count)} % 104 = {int(frame_count) % 104}")
-                if int(frame_count) % 104 == 0:
-                    if int(frame_count) == 104:
-                        # Add video to video array
-                        video = Video(str(file), frames, str(filepath), label, int(frame_count), duration)
-                        # print(str(video))
-                        videos.append(video)
-                    elif int(frame_count) > 104:
-                        # print(f"{str(file)} has frame_count = {frame_count}" +
-                        #       f", length of frames = {len(frames)}, fps = {fps}")
-                        print(f"{str(file)} has {int(frame_count)} frames, "
-                              f"{int(frame_count)} / 104 = {int(frame_count) / 104}")
-                        video_segments = split_video(frames, 104)
+            frame_count = int(video_cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            if frame_count >= FRAMES_LIMIT:
+                video_cap.release()
+                continue
+            fps = int(video_cap.get(cv2.CAP_PROP_FPS))
+            frames = extract_frames(video_cap)
+            duration = get_video_duration(frame_count, fps)
+            if len(frames) == frame_count:
+                if len(frames) % 2 == 0:
+                    print(f"{str(file)} has {frame_count} frames at {fps} fps and is {duration} long")
+                    file_count += 1
+                    if frame_count > 2:
+                        video_segments = split_video(frames, 2)
+                        print(f"Video number {file_count}")
                         for i in range(len(video_segments)):
-                            filename = str(file) + " Part " + str(i + 1)
-                            video = Video(str(filename), video_segments[i], str(filepath), label
-                                          , len(video_segments[i]), get_video_duration(len(video_segments[i]), fps))
-                            videos.append(video)
-                file_count += 1
-        #         # Check if the current video has the smallest frame count seen so far
-        #         if frame_count < smallest_frame_count:
-        #             smallest_frame_count = frame_count
-        #             smallest_video = Video(str(file), frames, str(filepath), label, int(frame_count), duration)
-        #             print(smallest_video)
-        # # If a smallest video is found for this label, add it to the videos list
-        # if smallest_video is not None:
-        #     videos.append(smallest_video)
+                            new_video = Video(str(str(file) + " Part " + str(i + 1)), video_segments[i],
+                                              str(filepath), label, len(video_segments[i]),
+                                              get_video_duration(len(video_segments[i]), fps))
+                            videos.append(new_video)
+            else:
+                # print(f"Error: lengths are not equal, {file}")
+                continue
     return videos
 
 
 # Video data processing
 
-videos = fetch_ucf_crime_dataset()
-for v in videos:
-    print(str(v))
-frame_counts = [v.frame_count for v in videos]
+video_data = fetch_ucf_crime_dataset()
 
-print("Number of videos", len(videos))
+# for i in video_data:
+#     print(str(i))
+frame_counts = [video.frame_count for video in video_data]
 
-min_frames = min(frame_counts)
-max_frames = max(frame_counts)
+print("Number of videos", len(video_data))
 
-print("max number of frames in all the videos", max_frames)
-print("min number of frames in all the videos", min_frames)
+# Size and Duration of the all videos stored
+print(f"Number of frames of all videos together is {sum(frame_counts)}")
+print(f"Duration of all videos together is {get_video_duration(sum(frame_counts), 30)}")
 
-video_labels = np.array([video.label for video in videos])
-print("Shape of video labels:", video_labels.shape)
-print("Data type of video labels", video_labels.dtype)
-features = np.asarray([video.frames for video in videos])
+video_labels = np.array([video.label for video in video_data])
+features = np.asarray([video.frames for video in video_data])
 print("Shape of features:", features.shape)
 print("Data type of features", features.dtype)
 
 print(f"features has length of {len(features)}")
 print(f"Video Labels has length of {len(video_labels)}")
 
+min_frames = min(frame_counts)
+max_frames = max(frame_counts)
+print(f"the smallest amount of frames is {min_frames}")
+print(f"the largest amount of frames is {max_frames}")
 
-# durations = [video.duration for video in videos]
-# print(durations)
+# Encoding labels
+
+# I'll be using One Hot Encoding as it is more flexible and since there is no natural order or hierarchy
+# Convert labels to numerical categories
+
+# Initialize OneHotEncoder
+one_hot_encoder = OneHotEncoder()
+
+# Reshape the video_labels array to 2D shape
+video_labels_reshaped = video_labels.reshape(-1, 1)
+
+# Fit and transform the labels to one-hot encoded vectors
+one_hot_encoded_labels = one_hot_encoder.fit_transform(video_labels_reshaped).toarray()
+
 
 # Create Test and Train Set
-
 # splitting into train and test sets
 features_train, features_test, labels_train, labels_test = train_test_split(features,
-                                                                            video_labels,
+                                                                            one_hot_encoded_labels,
                                                                             test_size=0.2, shuffle=True)
 
 features_train = np.array(features_train)
 features_test = np.array(features_test)
 
-# Encoding labels
-
-# Convert labels to numerical categories
-# Reshape the array to 2D
-labels_train = labels_train.reshape(-1, 1)
-labels_train = np.array(labels_train)
-
-labels_test = labels_test.reshape(-1, 1)
-labels_test = np.array(labels_test)
-
-# Create an instance of the OneHotEncoder
-encoder = OneHotEncoder()
-
-# # Fit the encoder to the data and transform the data
-# encoded_labels_train = encoder.fit_transform(labels_train)
-# encoded_labels_train = np.array(encoded_labels_train.reshape(-1, 1))
-# # encoded_labels_train = tf.convert_to_tensor(encoded_labels_train.reshape(-1, 1))
-
-# encoded_labels_test = encoder.fit_transform(labels_test)
-# encoded_labels_test = np.array(encoded_labels_train).reshape(-1, 1)
-# encoded_labels_test = np.array(encoded_labels_test)
-encoded_labels_train = encoder.fit_transform(labels_train).toarray()
-encoded_labels_test = encoder.fit_transform(labels_test).toarray()
-
-
-# I'll be using One Hot Encoding as it is more flexible and since there is no natural order or hierarchy
 
 # Create ConvLSTM model
-
 def create_conv_lstm_model():
     model = Sequential()
 
@@ -275,16 +350,16 @@ def create_conv_lstm_model():
 
     model.add(Flatten())
 
-    model.add(Dense(len(CLASSES), activation="softmax"))
+    model.add(Dense(len(labels), activation="softmax"))
 
     # Display the models summary.
     model.summary()
 
-    # Return the constructed convlstm model.
+    # Return the constructed ConvLSTM model.
     return model
 
 
-# Construct the required convlstm model.
+# Construct the required ConvLSTM model.
 conv_lstm_model = create_conv_lstm_model()
 # Display the success message.
 print("Model Created Successfully!")
@@ -297,38 +372,34 @@ early_stopping_callback = EarlyStopping(monitor='val_loss', patience=10, mode='m
 conv_lstm_model.compile(loss='categorical_crossentropy', optimizer='Adam', metrics=["accuracy"])
 
 # Training Model
-
 print("Shape of features_train:", np.shape(features_train))
 print("Type of features_train:", type(features_train))
-print("Type of encoded training labels:", type(encoded_labels_train))
-print("Shape of encoded training labels:", np.shape(encoded_labels_train))
+print("Type of encoded training labels:", type(labels_train))
+print("Shape of encoded training labels:", np.shape(labels_train))
+
 
 # Start training the model.
-conv_lstm_model_training_history = conv_lstm_model.fit(features_train, encoded_labels_train,
-                                                       epochs=50, batch_size=4, shuffle=True,
+conv_lstm_model_training_history = conv_lstm_model.fit(x=features_train, y=labels_train, epochs=50,
+                                                       batch_size=4, shuffle=True, validation_split=0.2,
                                                        callbacks=[early_stopping_callback])
 
 # Evaluate model
-
 # Evaluate the trained model.
 model_evaluation_history = conv_lstm_model.evaluate(features_test, labels_test)
 
 # Save Model
-
 # Get the loss and accuracy from model_evaluation_history.
 model_evaluation_loss, model_evaluation_accuracy = model_evaluation_history
 
 # Define the string date format.
 # Get the current Date and Time in a DateTime Object.
 # Convert the DateTime object to string according to the style mentioned in date_time_format string.
-date_time_format = '%Y_%m_%d__%H_%M_%S'
+date_time_format = '%d/%m/%Y @ %H:%M:%S'
 current_date_time_dt = dt.datetime.now()
 current_date_time_string = dt.datetime.strftime(current_date_time_dt, date_time_format)
 
 # Define a useful name for our model to make it easy for us while navigating through multiple saved models.
-model_file_name = f'conv_lstm_model___Date_Time_' \
-                  f'{current_date_time_string}___Loss_' \
-                  f'{model_evaluation_loss}___Accuracy_{model_evaluation_accuracy}.png'
+model_file_name = f'ConvLSTM_model_{current_date_time_string}'
 
 # Save your Model.
 conv_lstm_model.save(model_file_name)
@@ -365,10 +436,29 @@ def plot_metric(model_training_history, metric_name_1, metric_name_2, plot_name)
     plt.legend()
 
 
+# save plots to drive
+def save_plot(filename: str, extension="png", directory="./"):
+    # Create a Path object for the directory
+    directory_path = Path(directory)
+
+    # Create the directory if it doesn't exist
+    directory_path.mkdir(parents=True, exist_ok=True)
+
+    # Create a Path object for the file
+    file_path = directory_path / f"{filename}.{extension}"
+
+    # Save the plot using the Path object
+    plt.savefig(file_path, dpi=300, bbox_inches='tight')
+    print(f"Plot saved as {file_path}")
+
+
 # Visualize the training and validation loss metrics.
-plot_metric(conv_lstm_model_training_history, 'loss', 'val_loss',
-            'Total Loss vs Total Validation Loss')
+plot_metric(conv_lstm_model_training_history, 'loss', 'val_loss', 'Total Loss vs Total Validation Loss')
+
+save_plot(str(model_file_name + " Total Loss vs Total Validation Loss"), "png", model_file_name)
 
 # Visualize the training and validation accuracy metrics.
 plot_metric(conv_lstm_model_training_history, 'accuracy', 'val_accuracy',
             'Total Accuracy vs Total Validation Accuracy')
+
+save_plot(str(model_file_name + " Total Accuracy vs Total Validation Accuracy"), "png", model_file_name)
